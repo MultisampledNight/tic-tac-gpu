@@ -1,0 +1,15 @@
+[package]
+name = "tic-tac-gpu"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+bytemuck = "1.7"
+env_logger = "0.9"
+log = "0.4"
+thiserror = "1.0"
+tokio = { version = "1.13.0", features = ["full"] }
+winit = "0.25"
+wgpu = "0.11"
