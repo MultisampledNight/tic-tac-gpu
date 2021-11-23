@@ -1,5 +1,7 @@
 use {
+    std::f32::consts::PI,
     thiserror::Error,
+    ultraviolet::{rotor::Rotor2, vec::Vec2},
     wgpu::util::DeviceExt,
     winit::{
         dpi,
@@ -43,6 +45,7 @@ pub struct Backend {
     pipeline: wgpu::RenderPipeline,
 
     cross: Shape,
+    ring: Shape,
 
     window_size: dpi::PhysicalSize<u32>,
 }
@@ -185,6 +188,7 @@ impl Backend {
         });
 
         let cross = Shape::cross(&device);
+        let ring = Shape::ring(&device);
 
         Ok(Self {
             adapter,
@@ -193,6 +197,7 @@ impl Backend {
             surface,
             pipeline,
             cross,
+            ring,
             window_size,
         })
     }
@@ -238,6 +243,8 @@ impl Backend {
 
         // Now that we finished the setup stuff, let's actually draw stuff.
         self.cross
+            .draw(&mut encoder, &self.pipeline, &next_frame_view);
+        self.ring
             .draw(&mut encoder, &self.pipeline, &next_frame_view);
 
         // Now that we're done recording what we want to do for now, we have to tell the
@@ -415,5 +422,54 @@ impl Shape {
                 11, 4, 5,
             ],
         )
+    }
+
+    /// Creates a new ring-like shape with 48 vertices.
+    #[rustfmt::skip]
+    fn ring(device: &wgpu::Device) -> Shape {
+        const CIRCLE_VERTEX_COUNT: u32 = 24;
+
+        fn wrap_at_max(x: u32) -> u32 {
+            x % (CIRCLE_VERTEX_COUNT * 2)
+        }
+
+        let mut vertices = Vec::with_capacity((CIRCLE_VERTEX_COUNT * 2) as usize);
+        let mut indices = Vec::with_capacity((CIRCLE_VERTEX_COUNT * 6) as usize);
+
+        // We configure the rotor once, then rotate the vector with it again and again and again...
+        // ...until we've completed a circle movement and catched all the vertices we wanted to
+        // have. Now let's go and push their DVs to make a perfect build. /hj
+        let rotor = Rotor2::from_angle(PI * 2.0 / CIRCLE_VERTEX_COUNT as f32);
+        let mut vector = Vec2::new(1.0, 0.0);
+
+        for i in (0..CIRCLE_VERTEX_COUNT).into_iter().map(|x| x * 2) {
+            vertices.push(Vertex { position: [vector.x * 0.15, vector.y * 0.15], color: [0.76, 0.3, 1.0, 1.0] });
+            vertices.push(Vertex { position: [vector.x * 0.25, vector.y * 0.25], color: [0.76, 0.3, 1.0, 1.0] });
+
+            // Might seem confusing, but let me explain:
+            //
+            //  3        1
+            //   +------+
+            //   |     / \
+            //   +----+   \
+            //  2    0 \   \
+            //
+            // (note the direction, we're going counter-clockwise, important for clipping)
+            // In one loop iteration, we want to note down such a quad between the current vertex
+            // pair and the next one. This can be accomplished by a triangle between 0, 1 and 2,
+            // and one between 2, 1, 3. We need to wrap 2 and 3 at CIRCLE_VERTEX_COUNT though, as
+            // we're constantly referring to the next pair: What if i is currently
+            // CIRCLE_VERTEX_COUNT - 2?
+            for x in [
+                i, i + 1, wrap_at_max(i + 2),
+                wrap_at_max(i + 2), i + 1, wrap_at_max(i + 3),
+            ] {
+                indices.push(x as u16);
+            }
+
+            rotor.rotate_vec(&mut vector);
+        }
+
+        Self::new(device, vertices, indices)
     }
 }
