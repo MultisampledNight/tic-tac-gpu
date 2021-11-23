@@ -355,9 +355,9 @@ impl Shape {
                 resolve_target: None,
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Clear(wgpu::Color {
-                        r: 0.1,
-                        g: 0.14,
-                        b: 0.14,
+                        r: 0.05,
+                        g: 0.09,
+                        b: 0.09,
                         a: 1.0,
                     }),
                     store: true,
