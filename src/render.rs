@@ -41,9 +41,8 @@ pub struct Backend {
     queue: wgpu::Queue,
     surface: wgpu::Surface,
     pipeline: wgpu::RenderPipeline,
-    vertex_buffer: wgpu::Buffer,
-    index_buffer: wgpu::Buffer,
-    num_indices: u32,
+
+    cross: Shape,
 
     window_size: dpi::PhysicalSize<u32>,
 }
@@ -160,8 +159,8 @@ impl Backend {
                 ],
             },
             primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleStrip,
-                strip_index_format: Some(wgpu::IndexFormat::Uint16),
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
                 front_face: wgpu::FrontFace::Ccw,
                 cull_mode: Some(wgpu::Face::Back),
                 clamp_depth: false,
@@ -185,33 +184,7 @@ impl Backend {
             }),
         });
 
-        // Buffers in general are comparable to dynamically sized arrays, like vec![3, 12, 5, 2]
-        // would be. But they are a bit more complicated, by that I mean you can control how a
-        // buffer is allowed to be used, or change how it's data is to be interpreted (which is...
-        // quite rare, but can happen).
-        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Vertex buffer"),
-            contents: bytemuck::cast_slice(&[
-                Vertex {
-                    position: [0.0, 0.5],
-                    color: [1.0, 0.0, 0.0, 1.0],
-                },
-                Vertex {
-                    position: [-0.5, -0.5],
-                    color: [0.0, 1.0, 0.0, 1.0],
-                },
-                Vertex {
-                    position: [0.5, -0.5],
-                    color: [0.0, 0.0, 1.0, 1.0],
-                },
-            ]),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
-        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Index buffer"),
-            contents: bytemuck::cast_slice(&[0u16, 1, 2]),
-            usage: wgpu::BufferUsages::INDEX,
-        });
+        let cross = Shape::cross(&device);
 
         Ok(Self {
             adapter,
@@ -219,9 +192,7 @@ impl Backend {
             queue,
             surface,
             pipeline,
-            vertex_buffer,
-            index_buffer,
-            num_indices: 3,
+            cross,
             window_size,
         })
     }
@@ -265,35 +236,9 @@ impl Backend {
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
-        // Render passes are like one thing to do when rendering stuff on the screen. They take one
-        // "shape" (vertex buffers + one index buffer) , instance them as needed, and are then
-        // given to the encoder to take care of it.
-        // Since the render pass has a mutable reference to the encoder, we need to drop it before
-        // rendering -- as long as we .finish() is, it's short lifetime won't be useless though.
-        {
-            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: None,
-                color_attachments: &[wgpu::RenderPassColorAttachment {
-                    view: &next_frame_view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: 0.1,
-                            g: 0.14,
-                            b: 0.14,
-                            a: 1.0,
-                        }),
-                        store: true,
-                    },
-                }],
-                depth_stencil_attachment: None,
-            });
-
-            render_pass.set_pipeline(&self.pipeline);
-            render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-            render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-            render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
-        }
+        // Now that we finished the setup stuff, let's actually draw stuff.
+        self.cross
+            .draw(&mut encoder, &self.pipeline, &next_frame_view);
 
         // Now that we're done recording what we want to do for now, we have to tell the
         // CommandEncoder to stop recording and place our resulting CommandBuffer on the conveyor
@@ -347,3 +292,128 @@ struct Vertex {
 
 unsafe impl bytemuck::Zeroable for Vertex {}
 unsafe impl bytemuck::Pod for Vertex {}
+
+macro_rules! vertices {
+    (color: { r: $r:expr, g: $g:expr, b: $b:expr $(,)? }, position: [ $( $x:expr, $y:expr $(,)? );+ $(;)? ]) => {
+        vec![$(
+            Vertex { position: [$x, $y], color: [$r, $g, $b, 1.0] },
+        )*]
+    };
+}
+
+#[derive(Debug)]
+struct Shape {
+    vertices: wgpu::Buffer,
+    indices: wgpu::Buffer,
+    index_count: u32,
+}
+
+impl Shape {
+    /// Allocates the given shape on the GPU. Has to be drawn to be seen.
+    fn new(device: &wgpu::Device, vertices: Vec<Vertex>, indices: Vec<u16>) -> Self {
+        // Buffers in general are comparable to dynamically sized arrays, like vec![3, 12, 5, 2]
+        // would be. But they are a bit more complicated, by that I mean you can control how a
+        // buffer is allowed to be used, or change how it's data is to be interpreted (which is...
+        // quite rare, but can happen).
+        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: None,
+            contents: bytemuck::cast_slice(&vertices),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: None,
+            contents: bytemuck::cast_slice(&indices),
+            usage: wgpu::BufferUsages::INDEX,
+        });
+
+        Self {
+            vertices: vertex_buffer,
+            indices: index_buffer,
+            index_count: indices.len() as u32,
+        }
+    }
+
+    /// Draws this shape by creating a new render pass.
+    ///
+    /// The pipeline defines how the vertices contained by this shape are to be interpreted, e.g.
+    /// if as lines, triangles, triangle strips...
+    fn draw<'a>(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        pipeline: &wgpu::RenderPipeline,
+        target_view: &wgpu::TextureView,
+    ) {
+        // Render passes are like one thing to do when rendering stuff on the screen. They take one
+        // "shape" (vertex buffers + one index buffer) , instance them as needed, and are then
+        // given to the encoder to take care of it.
+        // Note that the render pass is written into the encoder when dropping it, so we don't need
+        // to consume it or anything.
+        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: None,
+            color_attachments: &[wgpu::RenderPassColorAttachment {
+                view: &target_view,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color {
+                        r: 0.1,
+                        g: 0.14,
+                        b: 0.14,
+                        a: 1.0,
+                    }),
+                    store: true,
+                },
+            }],
+            depth_stencil_attachment: None,
+        });
+
+        render_pass.set_pipeline(&pipeline);
+        render_pass.set_vertex_buffer(0, self.vertices.slice(..));
+        render_pass.set_index_buffer(self.indices.slice(..), wgpu::IndexFormat::Uint16);
+        render_pass.draw_indexed(0..self.index_count, 0, 0..1);
+    }
+}
+
+/// Pre-defined shapes.
+impl Shape {
+    /// Creates a new cross-like shape.
+    #[rustfmt::skip]
+    fn cross(device: &wgpu::Device) -> Self {
+        Self::new(
+            device,
+            vertices! {
+                color: { r: 0.27, g: 0.87, b: 0.7 },
+                position: [
+                    -0.25, 0.25;
+                    -0.2, 0.15;
+                    -0.15, 0.2;
+
+                    0.25, 0.25;
+                    0.2, 0.15;
+                    0.15, 0.2;
+
+                    0.25, -0.25;
+                    0.2, -0.15;
+                    0.15, -0.2;
+
+                    -0.25, -0.25;
+                    -0.2, -0.15;
+                    -0.15, -0.2;
+                ]
+            },
+            vec![
+                // corners
+                1, 2, 0,
+                3, 5, 4,
+                6, 7, 8,
+                9, 11, 10,
+
+                // "bridges"
+                1, 8, 7,
+                7, 2, 1,
+
+                5, 10, 11,
+                11, 4, 5,
+            ],
+        )
+    }
+}
