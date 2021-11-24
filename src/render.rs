@@ -37,6 +37,18 @@ impl From<wgpu::SurfaceError> for BackendDrawError {
     }
 }
 
+/// All the information you need to know about a frame in order to render on it.
+///
+/// Has two different lifetimes as one time handles are expected to persist over several frames
+/// such as a pipeline or a device, and one time things are really thought only for this frame,
+/// such as a view on the next surface contents or a command encoder. Not that it would make a
+/// usable difference.
+struct Frame<'persist, 'frame> {
+    encoder: &'frame mut wgpu::CommandEncoder,
+    target_view: &'frame wgpu::TextureView,
+    pipeline: &'persist wgpu::RenderPipeline,
+}
+
 pub struct Backend {
     adapter: wgpu::Adapter,
     device: wgpu::Device,
@@ -216,41 +228,40 @@ impl Backend {
         );
     }
 
-    fn clear_background(
-        color: wgpu::Color,
-        encoder: &mut wgpu::CommandEncoder,
-        target_view: &wgpu::TextureView,
-    ) {
-        encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: None,
-            color_attachments: &[wgpu::RenderPassColorAttachment {
-                view: target_view,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(color),
-                    store: true,
-                },
-            }],
-            depth_stencil_attachment: None,
-        });
+    fn clear_background(color: wgpu::Color, frame: &mut Frame<'_, '_>) {
+        frame
+            .encoder
+            .begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: None,
+                color_attachments: &[wgpu::RenderPassColorAttachment {
+                    view: frame.target_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(color),
+                        store: true,
+                    },
+                }],
+                depth_stencil_attachment: None,
+            });
         // dropping is enough for the clear command to be recorded
     }
 
     fn draw(&mut self) -> Result<(), BackendDrawError> {
         // We first have to tell the surface we want to have a fresh new frame to render to.
-        let next_frame = self.surface.get_current_texture()?;
+        let next_frame_surface = self.surface.get_current_texture()?;
 
         // You can see a view as an actual "view" on the texture. It's possible to see something
         // from a different angle or at another daylight. Here you have much less options though.
-        let next_frame_view = next_frame
-            .texture
-            .create_view(&wgpu::TextureViewDescriptor {
-                label: None,
-                // might seem pointless, but I want to ensure the format is Some
-                format: Some(self.surface.get_preferred_format(&self.adapter).unwrap()),
-                dimension: Some(wgpu::TextureViewDimension::D2),
-                ..Default::default()
-            });
+        let next_frame_view =
+            next_frame_surface
+                .texture
+                .create_view(&wgpu::TextureViewDescriptor {
+                    label: None,
+                    // might seem pointless, but I want to ensure the format is Some
+                    format: Some(self.surface.get_preferred_format(&self.adapter).unwrap()),
+                    dimension: Some(wgpu::TextureViewDimension::D2),
+                    ..Default::default()
+                });
 
         // A command encoder is comparable to a recorder: You say some things and these things can
         // be heared in the same order later on. Same with the command encoder, just that it
@@ -261,9 +272,15 @@ impl Backend {
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
+        // Almost finished with setting up stuff, we pack all "rendering" stuff of interest into a
+        // nice toolbox we can hand around to anything that wants to draw something.
+        let mut next_frame = Frame {
+            encoder: &mut encoder,
+            target_view: &next_frame_view,
+            pipeline: &self.pipeline,
+        };
+
         // Now that we finished the setup stuff, let's actually draw stuff.
-        // TODO lay all that encoder and view stuff out into a frame struct and make
-        // clear_background a method on that
         Self::clear_background(
             wgpu::Color {
                 r: 0.04,
@@ -271,13 +288,10 @@ impl Backend {
                 b: 0.09,
                 a: 1.0,
             },
-            &mut encoder,
-            &next_frame_view,
+            &mut next_frame,
         );
-        self.ring
-            .draw(&mut encoder, &self.pipeline, &next_frame_view);
-        self.cross
-            .draw(&mut encoder, &self.pipeline, &next_frame_view);
+        self.cross.draw(&mut next_frame);
+        self.ring.draw(&mut next_frame);
 
         // Now that we're done recording what we want to do for now, we have to tell the
         // CommandEncoder to stop recording and place our resulting CommandBuffer on the conveyor
@@ -286,7 +300,7 @@ impl Backend {
 
         // And finally, tell the surface texture for the next frame we're done with drawing to it,
         // it can "present" itself to the world now.
-        next_frame.present();
+        next_frame_surface.present();
         Ok(())
     }
 }
@@ -376,32 +390,29 @@ impl Shape {
     ///
     /// The pipeline defines how the vertices contained by this shape are to be interpreted, e.g.
     /// if as lines, triangles, triangle strips...
-    fn draw<'a>(
-        &self,
-        encoder: &mut wgpu::CommandEncoder,
-        pipeline: &wgpu::RenderPipeline,
-        target_view: &wgpu::TextureView,
-    ) {
+    fn draw<'a>(&self, frame: &mut Frame<'_, '_>) {
         // Render passes are like one thing to do when rendering stuff on the screen. They take one
         // "shape" (vertex buffers + one index buffer) , instance them as needed, and are then
         // given to the encoder to take care of it.
         // Note that the render pass is written into the encoder when dropping it, so we don't need
         // to consume it or anything.
-        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: None,
-            color_attachments: &[wgpu::RenderPassColorAttachment {
-                view: &target_view,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    // TODO is that really ideal?
-                    load: wgpu::LoadOp::Load,
-                    store: true,
-                },
-            }],
-            depth_stencil_attachment: None,
-        });
+        let mut render_pass = frame
+            .encoder
+            .begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: None,
+                color_attachments: &[wgpu::RenderPassColorAttachment {
+                    view: &frame.target_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        // TODO is that really ideal?
+                        load: wgpu::LoadOp::Load,
+                        store: true,
+                    },
+                }],
+                depth_stencil_attachment: None,
+            });
 
-        render_pass.set_pipeline(&pipeline);
+        render_pass.set_pipeline(&frame.pipeline);
         render_pass.set_vertex_buffer(0, self.vertices.slice(..));
         render_pass.set_index_buffer(self.indices.slice(..), wgpu::IndexFormat::Uint16);
         render_pass.draw_indexed(0..self.index_count, 0, 0..1);
