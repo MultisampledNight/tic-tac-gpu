@@ -216,6 +216,26 @@ impl Backend {
         );
     }
 
+    fn clear_background(
+        color: wgpu::Color,
+        encoder: &mut wgpu::CommandEncoder,
+        target_view: &wgpu::TextureView,
+    ) {
+        encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: None,
+            color_attachments: &[wgpu::RenderPassColorAttachment {
+                view: target_view,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(color),
+                    store: true,
+                },
+            }],
+            depth_stencil_attachment: None,
+        });
+        // dropping is enough for the clear command to be recorded
+    }
+
     fn draw(&mut self) -> Result<(), BackendDrawError> {
         // We first have to tell the surface we want to have a fresh new frame to render to.
         let next_frame = self.surface.get_current_texture()?;
@@ -242,9 +262,21 @@ impl Backend {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
         // Now that we finished the setup stuff, let's actually draw stuff.
-        self.cross
-            .draw(&mut encoder, &self.pipeline, &next_frame_view);
+        // TODO lay all that encoder and view stuff out into a frame struct and make
+        // clear_background a method on that
+        Self::clear_background(
+            wgpu::Color {
+                r: 0.04,
+                g: 0.09,
+                b: 0.09,
+                a: 1.0,
+            },
+            &mut encoder,
+            &next_frame_view,
+        );
         self.ring
+            .draw(&mut encoder, &self.pipeline, &next_frame_view);
+        self.cross
             .draw(&mut encoder, &self.pipeline, &next_frame_view);
 
         // Now that we're done recording what we want to do for now, we have to tell the
@@ -361,12 +393,8 @@ impl Shape {
                 view: &target_view,
                 resolve_target: None,
                 ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color {
-                        r: 0.05,
-                        g: 0.09,
-                        b: 0.09,
-                        a: 1.0,
-                    }),
+                    // TODO is that really ideal?
+                    load: wgpu::LoadOp::Load,
                     store: true,
                 },
             }],
