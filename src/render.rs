@@ -29,9 +29,8 @@ enum BackendDrawError {
 
 impl From<wgpu::SurfaceError> for BackendDrawError {
     fn from(source: wgpu::SurfaceError) -> Self {
-        use wgpu::SurfaceError::*;
         match source {
-            Outdated | Lost => Self::SurfaceOutdated,
+            wgpu::SurfaceError::Outdated | wgpu::SurfaceError::Lost => Self::SurfaceOutdated,
             e => Self::SurfaceTextureError(e),
         }
     }
@@ -199,17 +198,14 @@ impl Backend {
             }),
         });
 
-        let cross = Shape::cross(&device);
-        let ring = Shape::ring(&device);
-
         Ok(Self {
+            cross: Shape::cross(&device),
+            ring: Shape::ring(&device),
             adapter,
             device,
             queue,
             surface,
             pipeline,
-            cross,
-            ring,
             window_size,
         })
     }
@@ -260,7 +256,7 @@ impl Backend {
                     // might seem pointless, but I want to ensure the format is Some
                     format: Some(self.surface.get_preferred_format(&self.adapter).unwrap()),
                     dimension: Some(wgpu::TextureViewDimension::D2),
-                    ..Default::default()
+                    ..wgpu::TextureViewDescriptor::default()
                 });
 
         // A command encoder is comparable to a recorder: You say some things and these things can
@@ -348,7 +344,7 @@ unsafe impl bytemuck::Pod for Vertex {}
 
 macro_rules! vertices {
     (color: { r: $r:expr, g: $g:expr, b: $b:expr $(,)? }, position: [ $( $x:expr, $y:expr $(,)? );+ $(;)? ]) => {
-        vec![$(
+        &[$(
             Vertex { position: [$x, $y], color: [$r, $g, $b, 1.0] },
         )*]
     };
@@ -363,19 +359,19 @@ struct Shape {
 
 impl Shape {
     /// Allocates the given shape on the GPU. Has to be drawn to be seen.
-    fn new(device: &wgpu::Device, vertices: Vec<Vertex>, indices: Vec<u16>) -> Self {
+    fn new(device: &wgpu::Device, vertices: &[Vertex], indices: &[u16]) -> Self {
         // Buffers in general are comparable to dynamically sized arrays, like vec![3, 12, 5, 2]
         // would be. But they are a bit more complicated, by that I mean you can control how a
         // buffer is allowed to be used, or change how it's data is to be interpreted (which is...
         // quite rare, but can happen).
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: None,
-            contents: bytemuck::cast_slice(&vertices),
+            contents: bytemuck::cast_slice(vertices),
             usage: wgpu::BufferUsages::VERTEX,
         });
         let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: None,
-            contents: bytemuck::cast_slice(&indices),
+            contents: bytemuck::cast_slice(indices),
             usage: wgpu::BufferUsages::INDEX,
         });
 
@@ -390,7 +386,7 @@ impl Shape {
     ///
     /// The pipeline defines how the vertices contained by this shape are to be interpreted, e.g.
     /// if as lines, triangles, triangle strips...
-    fn draw<'a>(&self, frame: &mut Frame<'_, '_>) {
+    fn draw(&self, frame: &mut Frame<'_, '_>) {
         // Render passes are like one thing to do when rendering stuff on the screen. They take one
         // "shape" (vertex buffers + one index buffer) , instance them as needed, and are then
         // given to the encoder to take care of it.
@@ -401,7 +397,7 @@ impl Shape {
             .begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: None,
                 color_attachments: &[wgpu::RenderPassColorAttachment {
-                    view: &frame.target_view,
+                    view: frame.target_view,
                     resolve_target: None,
                     ops: wgpu::Operations {
                         // TODO is that really ideal?
@@ -412,7 +408,7 @@ impl Shape {
                 depth_stencil_attachment: None,
             });
 
-        render_pass.set_pipeline(&frame.pipeline);
+        render_pass.set_pipeline(frame.pipeline);
         render_pass.set_vertex_buffer(0, self.vertices.slice(..));
         render_pass.set_index_buffer(self.indices.slice(..), wgpu::IndexFormat::Uint16);
         render_pass.draw_indexed(0..self.index_count, 0, 0..1);
@@ -446,7 +442,7 @@ impl Shape {
                     -0.15, -0.2;
                 ]
             },
-            vec![
+            &[
                 // corners
                 1, 2, 0,
                 3, 5, 4,
@@ -509,6 +505,6 @@ impl Shape {
             rotor.rotate_vec(&mut vector);
         }
 
-        Self::new(device, vertices, indices)
+        Self::new(device, &vertices, &indices)
     }
 }

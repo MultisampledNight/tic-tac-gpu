@@ -36,7 +36,7 @@ impl App {
             .with_title("Tic Tac GPU")
             .with_resizable(false)
             .with_inner_size(dpi::LogicalSize::new(400, 400))
-            .build(&event_loop)?;
+            .build(event_loop)?;
         // SAFETY: window is in the same struct as the backend and the window gets dropped after
         // the backend
         let backend = unsafe { Backend::new(&window) }.await?;
