@@ -5,7 +5,7 @@ use {
     thiserror::Error,
     winit::{
         dpi,
-        event::Event,
+        event::{Event, MouseButton, WindowEvent},
         event_loop::{ControlFlow, EventLoop},
         window::{Window, WindowBuilder},
     },
@@ -23,11 +23,19 @@ enum AppError {
     BackendError(#[from] render::BackendError),
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum Cell {
+    Cross,
+    Ring,
+    Empty,
+}
+
 struct App {
+    board: [Cell; 9],
     backend: Backend,
 
     // DO NOT REORDER THIS -- Safety of Backend::new depends on it
-    _window: Window,
+    window: Window,
 }
 
 impl App {
@@ -42,14 +50,38 @@ impl App {
         let backend = unsafe { Backend::new(&window) }.await?;
 
         Ok(Self {
+            board: [Cell::Empty; 9],
             backend,
-            _window: window,
+            window,
         })
+    }
+
+    fn mark_field(&mut self, index: usize, with: Cell) {
+        self.board[index] = with;
+        // Don't forget to tell the backend! It has to update it's internal structure then
+        self.backend.update_instances(&self.board);
     }
 }
 
 impl HandleEvent for App {
     fn handle(&mut self, event: Event<()>, flow: &mut ControlFlow) {
+        match event {
+            Event::WindowEvent { ref event, .. } => match event {
+                &WindowEvent::MouseInput {
+                    button: MouseButton::Left,
+                    ..
+                } => {
+                    self.mark_field(2, Cell::Ring);
+                    self.mark_field(7, Cell::Cross);
+                    // Not triggering would cause the backend not to know when it should redraw,
+                    // and so it would be drawn on the next required redraw, such as the window
+                    // being visible again or switching workspaces.
+                    self.window.request_redraw();
+                }
+                _ => (),
+            },
+            _ => (),
+        }
         // Just forward, maybe it wants to do something with it as well
         self.backend.handle(event, flow);
     }

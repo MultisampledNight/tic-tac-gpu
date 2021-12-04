@@ -3,6 +3,10 @@ struct Vertex {
 	[[location(1)]] color: vec4<f32>;
 };
 
+struct Instance {
+	[[location(2)]] offset: vec2<f32>;
+};
+
 struct ModifiedVertex {
 	[[builtin(position)]] position: vec4<f32>;
 	[[location(0)]] color: vec4<f32>;
@@ -11,9 +15,10 @@ struct ModifiedVertex {
 [[stage(vertex)]]
 fn vertex_main(
 	source: Vertex,
+	instance: Instance,
 ) -> ModifiedVertex {
 	var out: ModifiedVertex;
-	out.position = vec4<f32>(source.position, 0.0, 1.0);
+	out.position = vec4<f32>(source.position + instance.offset, 0.0, 1.0);
 	out.color = source.color;
 	return out;
 }

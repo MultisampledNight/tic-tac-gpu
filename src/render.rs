@@ -1,5 +1,6 @@
 use {
-    std::f32::consts::PI,
+    super::Cell,
+    std::{f32::consts::PI, mem, ops::Range},
     thiserror::Error,
     ultraviolet::{rotor::Rotor2, vec::Vec2},
     wgpu::util::DeviceExt,
@@ -152,10 +153,11 @@ impl Backend {
                 entry_point: "vertex_main",
                 buffers: &[
                     // A vertex buffer layout, as the name says, tells about how data in this buffer is to be
-                    // interpreted. In this case we have two components, position and color, while the position
-                    // is 2 f32 and the color 4 f32, following after each other.
+                    // interpreted. In this case we have two components, position and color, while the position is 2 f32
+                    // and the color 4 f32, following after each other.
+                    // This one is specifically about the vertices themselves, technically you can define multiple ones.
                     wgpu::VertexBufferLayout {
-                        array_stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
+                        array_stride: mem::size_of::<Vertex>() as wgpu::BufferAddress,
                         step_mode: wgpu::VertexStepMode::Vertex,
                         attributes: &[
                             wgpu::VertexAttribute {
@@ -169,6 +171,19 @@ impl Backend {
                                 shader_location: 1,
                             },
                         ],
+                    },
+                    // Instances are described by their name pretty well: They're used if you have a shape which is
+                    // duplicated and also appears somewhere else in the scene, but modified in position, color,
+                    // rotation, scale, whatever you can imagine. Here we only define the position, no need for fancy
+                    // transformations.
+                    wgpu::VertexBufferLayout {
+                        array_stride: mem::size_of::<Instance>() as wgpu::BufferAddress,
+                        step_mode: wgpu::VertexStepMode::Instance,
+                        attributes: &[wgpu::VertexAttribute {
+                            format: wgpu::VertexFormat::Float32x2,
+                            offset: 0,
+                            shader_location: 2,
+                        }],
                     },
                 ],
             },
@@ -299,6 +314,14 @@ impl Backend {
         next_frame_surface.present();
         Ok(())
     }
+
+    /// Updates which shapes are visible on the screen.
+    pub fn update_instances(&mut self, board: &[Cell]) {
+        self.ring
+            .update_instances(board.iter().map(|cell| matches!(cell, Cell::Ring)));
+        self.cross
+            .update_instances(board.iter().map(|cell| matches!(cell, Cell::Cross)));
+    }
 }
 
 impl super::HandleEvent for Backend {
@@ -350,16 +373,52 @@ macro_rules! vertices {
     };
 }
 
+#[repr(C)]
+#[derive(Default, Debug, Copy, Clone, PartialEq)]
+struct Instance {
+    position: [f32; 2],
+}
+
+unsafe impl bytemuck::Zeroable for Instance {}
+unsafe impl bytemuck::Pod for Instance {}
+
+impl Instance {
+    /// Returns instances layed out in a 3 times 3 grid, ranging on both X and Y from -0.5 to 0.5.
+    fn grid() -> [Instance; 9] {
+        let mut grid = Vec::new();
+
+        for x in [-0.66, 0.0, 0.66] {
+            for y in [-0.66, 0.0, 0.66] {
+                grid.push(Instance { position: [x, y] });
+            }
+        }
+
+        grid.try_into()
+            .expect("matching size of function output and generation")
+    }
+}
+
 #[derive(Debug)]
 struct Shape {
     vertices: wgpu::Buffer,
     indices: wgpu::Buffer,
     index_count: u32,
+    // Not all instances we render to have to be active, but they all need to be present on the GPU
+    // anyways so we don't have to reupload them all the time.
+    all_instances: wgpu::Buffer,
+    active_ranges: Vec<Range<u32>>,
 }
 
 impl Shape {
     /// Allocates the given shape on the GPU. Has to be drawn to be seen.
-    fn new(device: &wgpu::Device, vertices: &[Vertex], indices: &[u16]) -> Self {
+    ///
+    /// No instances are visible by default. Use `update_instances` to change that.
+    fn new(
+        device: &wgpu::Device,
+        vertices: &[Vertex],
+        indices: &[u16],
+        instances: &[Instance],
+    ) -> Self {
         // Buffers in general are comparable to dynamically sized arrays, like vec![3, 12, 5, 2]
         // would be. But they are a bit more complicated, by that I mean you can control how a
         // buffer is allowed to be used, or change how it's data is to be interpreted (which is...
@@ -374,11 +433,48 @@ impl Shape {
             contents: bytemuck::cast_slice(indices),
             usage: wgpu::BufferUsages::INDEX,
         });
+        let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: None,
+            contents: bytemuck::cast_slice(instances),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
 
         Self {
             vertices: vertex_buffer,
             indices: index_buffer,
             index_count: indices.len() as u32,
+            all_instances: instance_buffer,
+            active_ranges: Vec::new(),
+        }
+    }
+
+    /// Updates the active instances of this shape.
+    fn update_instances<I>(&mut self, enabled: I)
+    where
+        I: Iterator<Item = bool> + ExactSizeIterator,
+    {
+        // thanks AsykoSkrwl!
+        let length = enabled.len();
+        if length == 0 {
+            return;
+        }
+        self.active_ranges.clear();
+        let indices = enabled
+            .zip(0_u32..)
+            .filter(|(active, _idx)| !*active)
+            .map(|(_, idx)| idx);
+        let mut prev_end = None;
+
+        for end in indices {
+            let start = prev_end.map(|end| end + 1).unwrap_or(0);
+            if end > start {
+                self.active_ranges.push(start..end);
+            }
+            prev_end = Some(end);
+        }
+
+        if prev_end.is_none() {
+            self.active_ranges.push(0_u32..length as u32);
         }
     }
 
@@ -410,12 +506,16 @@ impl Shape {
 
         render_pass.set_pipeline(frame.pipeline);
         render_pass.set_vertex_buffer(0, self.vertices.slice(..));
+        render_pass.set_vertex_buffer(1, self.all_instances.slice(..));
         render_pass.set_index_buffer(self.indices.slice(..), wgpu::IndexFormat::Uint16);
-        render_pass.draw_indexed(0..self.index_count, 0, 0..1);
+        for instance_range in &self.active_ranges {
+            render_pass.draw_indexed(0..self.index_count, 0, instance_range.clone());
+        }
     }
 }
 
-/// Pre-defined shapes.
+/// Pre-defined shapes. All methods in here have their instances layed out as in
+/// [`Instance::grid`].
 impl Shape {
     /// Creates a new cross-like shape.
     #[rustfmt::skip]
@@ -456,6 +556,7 @@ impl Shape {
                 5, 10, 11,
                 11, 4, 5,
             ],
+            &Instance::grid()
         )
     }
 
@@ -505,6 +606,6 @@ impl Shape {
             rotor.rotate_vec(&mut vector);
         }
 
-        Self::new(device, &vertices, &indices)
+        Self::new(device, &vertices, &indices, &Instance::grid())
     }
 }
