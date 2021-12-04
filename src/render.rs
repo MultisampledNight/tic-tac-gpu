@@ -56,6 +56,7 @@ pub struct Backend {
     surface: wgpu::Surface,
     pipeline: wgpu::RenderPipeline,
 
+    grid: Shape,
     cross: Shape,
     ring: Shape,
 
@@ -213,9 +214,18 @@ impl Backend {
             }),
         });
 
+        let mut grid = Shape::grid(&device);
+        // Might seem strange, but no instances are activated by default on any shape. But since
+        // the grid should be visible all the time and it only has one instance, we activate it
+        // now.
+        grid.update_instances(std::iter::once(true));
+        let cross = Shape::cross(&device);
+        let ring = Shape::ring(&device);
+
         Ok(Self {
-            cross: Shape::cross(&device),
-            ring: Shape::ring(&device),
+            grid,
+            cross,
+            ring,
             adapter,
             device,
             queue,
@@ -301,6 +311,7 @@ impl Backend {
             },
             &mut next_frame,
         );
+        self.grid.draw(&mut next_frame);
         self.cross.draw(&mut next_frame);
         self.ring.draw(&mut next_frame);
 
@@ -366,7 +377,7 @@ unsafe impl bytemuck::Zeroable for Vertex {}
 unsafe impl bytemuck::Pod for Vertex {}
 
 macro_rules! vertices {
-    (color: { r: $r:expr, g: $g:expr, b: $b:expr $(,)? }, position: [ $( $x:expr, $y:expr $(,)? );+ $(;)? ]) => {
+    (color: { r: $r:expr, g: $g:expr, b: $b:expr $(,)? }, position: [ $( $x:expr, $y:expr $(,)? );+ $(;)? ]$(,)?) => {
         &[$(
             Vertex { position: [$x, $y], color: [$r, $g, $b, 1.0] },
         )*]
@@ -515,7 +526,7 @@ impl Shape {
 }
 
 /// Pre-defined shapes. All methods in here have their instances layed out as in
-/// [`Instance::grid`].
+/// [`Instance::grid`] (except, well, `grid` itself which has only one).
 impl Shape {
     /// Creates a new cross-like shape.
     #[rustfmt::skip]
@@ -540,7 +551,7 @@ impl Shape {
                     -0.25, -0.25;
                     -0.2, -0.15;
                     -0.15, -0.2;
-                ]
+                ],
             },
             &[
                 // corners
@@ -562,7 +573,7 @@ impl Shape {
 
     /// Creates a new ring-like shape with 48 vertices.
     #[rustfmt::skip]
-    fn ring(device: &wgpu::Device) -> Shape {
+    fn ring(device: &wgpu::Device) -> Self {
         const CIRCLE_VERTEX_COUNT: u32 = 24;
 
         fn wrap_at_max(x: u32) -> u32 {
@@ -607,5 +618,65 @@ impl Shape {
         }
 
         Self::new(device, &vertices, &indices, &Instance::grid())
+    }
+
+    // A 3 times 3 grid.
+    //
+    // ```
+    //    |   |
+    // ---+---+---
+    //    |   |
+    // ---+---+---
+    //    |   |
+    // ```
+    #[rustfmt::skip]
+    fn grid(device: &wgpu::Device) -> Self {
+        Self::new(
+            device,
+            vertices! {
+                color: { r: 0.9, g: 0.9, b: 0.9 },
+                position: [
+                    // left-hand vertical line
+                    -0.35, 0.93;
+                    -0.31, 0.9;
+                    -0.35, -0.87;
+                    -0.31, -0.9;
+
+                    // right-hand vertical line
+                    0.35, 0.93;
+                    0.31, 0.9;
+                    0.35, -0.87;
+                    0.31, -0.9;
+
+                    // bottom horizontal line
+                    -0.93, -0.35;
+                    -0.9, -0.31;
+                    0.87, -0.35;
+                    0.9, -0.31;
+
+                    // top horizontal line
+                    -0.93, 0.35;
+                    -0.9, 0.31;
+                    0.87, 0.35;
+                    0.9, 0.31;
+                ],
+            },
+            &[
+                2, 1, 0,
+                1, 2, 3,
+
+                5, 6, 4,
+                6, 5, 7,
+
+                10, 9, 8,
+                9, 10, 11,
+
+                13, 14, 12,
+                14, 13, 15,
+            ],
+            &[Instance {
+                position: [0.0, 0.0],
+            }]
+        )
     }
 }
