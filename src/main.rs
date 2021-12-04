@@ -5,7 +5,7 @@ use {
     thiserror::Error,
     winit::{
         dpi,
-        event::{Event, MouseButton, WindowEvent},
+        event::{ElementState, Event, MouseButton, WindowEvent},
         event_loop::{ControlFlow, EventLoop},
         window::{Window, WindowBuilder},
     },
@@ -31,6 +31,7 @@ pub enum Cell {
 }
 
 struct App {
+    selected_field: (u8, u8),
     board: [Cell; 9],
     backend: Backend,
 
@@ -50,6 +51,7 @@ impl App {
         let backend = unsafe { Backend::new(&window) }.await?;
 
         Ok(Self {
+            selected_field: (1, 1),
             board: [Cell::Empty; 9],
             backend,
             window,
@@ -67,12 +69,31 @@ impl HandleEvent for App {
     fn handle(&mut self, event: Event<()>, flow: &mut ControlFlow) {
         match event {
             Event::WindowEvent { ref event, .. } => match event {
-                &WindowEvent::MouseInput {
+                WindowEvent::CursorMoved { position, .. } => {
+                    let window_size = self.window.inner_size();
+
+                    // even though it's name might not make that clear, these components now range
+                    // from 0 to 3
+                    let grid_pos = (
+                        (position.x * 3.0 / f64::from(window_size.width)) as u8,
+                        (position.y * 3.0 / f64::from(window_size.height)) as u8,
+                    );
+                    // winit thinks in y+ down, but wgpu by default y+ up, so invert
+                    // (this causes our grid to be thought in the wgpu dimension)
+                    let inverted = (grid_pos.0, 2 - grid_pos.1);
+
+                    self.selected_field = inverted;
+                }
+                WindowEvent::MouseInput {
                     button: MouseButton::Left,
+                    state: ElementState::Released,
                     ..
                 } => {
-                    self.mark_field(2, Cell::Ring);
-                    self.mark_field(7, Cell::Cross);
+                    // basically 2d to 1d index conversion, but we know already the width of one
+                    // line is 3
+                    let field_index = self.selected_field.0 * 3 + self.selected_field.1;
+                    self.mark_field(usize::from(field_index), Cell::Cross);
+
                     // Not triggering would cause the backend not to know when it should redraw,
                     // and so it would be drawn on the next required redraw, such as the window
                     // being visible again or switching workspaces.
