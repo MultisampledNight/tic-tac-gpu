@@ -49,6 +49,38 @@ struct Frame<'persist, 'frame> {
     pipeline: &'persist wgpu::RenderPipeline,
 }
 
+/// Limits tailored to this simple tic tac toe game.
+const LIMITS: wgpu::Limits = wgpu::Limits {
+    max_texture_dimension_1d: 0,
+    max_texture_dimension_2d: 0,
+    max_texture_dimension_3d: 0,
+    max_texture_array_layers: 0,
+
+    max_bind_groups: 0,
+
+    max_dynamic_uniform_buffers_per_pipeline_layout: 0,
+    max_dynamic_storage_buffers_per_pipeline_layout: 0,
+
+    max_sampled_textures_per_shader_stage: 0,
+    max_samplers_per_shader_stage: 0,
+    max_storage_buffers_per_shader_stage: 0,
+    max_storage_textures_per_shader_stage: 0,
+    max_uniform_buffers_per_shader_stage: 0,
+
+    max_uniform_buffer_binding_size: 0,
+    max_storage_buffer_binding_size: 0,
+
+    // one for the vertices themselves, one for the instances
+    max_vertex_buffers: 2,
+    // position + color of vertices + position of instances
+    max_vertex_attributes: 3,
+    max_vertex_buffer_array_stride: mem::size_of::<Vertex>() as u32,
+
+    max_push_constant_size: 0,
+    min_uniform_buffer_offset_alignment: !0,
+    min_storage_buffer_offset_alignment: !0,
+};
+
 pub struct Backend {
     adapter: wgpu::Adapter,
     device: wgpu::Device,
@@ -102,7 +134,7 @@ impl Backend {
                 &wgpu::DeviceDescriptor {
                     label: None,
                     features: wgpu::Features::empty(),
-                    limits: wgpu::Limits::downlevel_webgl2_defaults(),
+                    limits: LIMITS,
                 },
                 None,
             )
@@ -464,28 +496,32 @@ impl Shape {
     where
         I: Iterator<Item = bool> + ExactSizeIterator,
     {
-        // thanks AsykoSkrwl!
+        // thanks AsykoSkrwl! even though your solution had a few unfixable flaws when I tried to
+        // apply it, I took some useful things from it
+        self.active_ranges.clear();
+
         let length = enabled.len();
         if length == 0 {
             return;
         }
-        self.active_ranges.clear();
-        let indices = enabled
-            .zip(0_u32..)
-            .filter(|(active, _idx)| !*active)
-            .map(|(_, idx)| idx);
-        let mut prev_end = None;
 
-        for end in indices {
-            let start = prev_end.map(|end| end + 1).unwrap_or(0);
-            if end > start {
-                self.active_ranges.push(start..end);
+        let mut possible_start = None;
+
+        for (active, i) in enabled.zip(0_u32..) {
+            // basically just analyzing a flip-flop: note down when it's positive and note down when it
+            // ends being positive
+            match (possible_start, active) {
+                (None, true) => possible_start = Some(i),
+                (Some(start), false) => {
+                    self.active_ranges.push(start as u32..i);
+                    possible_start = None;
+                }
+                _ => (),
             }
-            prev_end = Some(end);
         }
 
-        if prev_end.is_none() {
-            self.active_ranges.push(0_u32..length as u32);
+        if let Some(start) = possible_start {
+            self.active_ranges.push(start as u32..length as u32);
         }
     }
 
