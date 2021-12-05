@@ -72,17 +72,25 @@ impl HandleEvent for App {
                 WindowEvent::CursorMoved { position, .. } => {
                     let window_size = self.window.inner_size();
 
-                    // even though it's name might not make that clear, these components now range
-                    // from 0 to 3
-                    let grid_pos = (
-                        (position.x * 3.0 / f64::from(window_size.width)) as u8,
-                        (position.y * 3.0 / f64::from(window_size.height)) as u8,
-                    );
-                    // winit thinks in y+ down, but wgpu by default y+ up, so invert
-                    // (this causes our grid to be thought in the wgpu dimension)
-                    let inverted = (grid_pos.0, 2 - grid_pos.1);
+                    // simple bounds checking, sometimes on X I've seen some mouse event coming
+                    // from out of the actual window size
+                    if !(position.x < 0.0
+                        || position.x >= window_size.width as f64
+                        || position.y < 0.0
+                        || position.y >= window_size.width as f64)
+                    {
+                        // even though it's name might not make that clear, these components now range
+                        // from 0 to 3
+                        let grid_pos = (
+                            (position.x * 3.0 / f64::from(window_size.width)) as u8,
+                            (position.y * 3.0 / f64::from(window_size.height)) as u8,
+                        );
+                        // winit thinks in y+ down, but wgpu by default y+ up, so invert
+                        // (this causes our grid to be thought in the wgpu dimension)
+                        let inverted = (grid_pos.0, 2 - grid_pos.1);
 
-                    self.selected_field = inverted;
+                        self.selected_field = inverted;
+                    }
                 }
                 WindowEvent::MouseInput {
                     button: MouseButton::Left,
