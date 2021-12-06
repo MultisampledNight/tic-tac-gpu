@@ -185,6 +185,25 @@ impl App {
             });
         }
     }
+
+    fn reset(&mut self) {
+        // TODO eventually the app should be more self-contained and all the game stuff into it's
+        // own struct which is resettable by ::new()ing and the app more like a manager, but it is
+        // what it is
+        self.board = [Cell::Empty; 9];
+        self.game_over = false;
+        self.backend.set_background(wgpu::Color {
+            r: 0.04,
+            g: 0.09,
+            b: 0.09,
+            a: 1.0,
+        });
+
+        self.user_faction = thread_rng().gen();
+        if !self.user_faction.goes_first() {
+            self.ai_turn();
+        }
+    }
 }
 
 impl HandleEvent for App {
@@ -218,24 +237,29 @@ impl HandleEvent for App {
                     button: MouseButton::Left,
                     state: ElementState::Released,
                     ..
-                } if !self.game_over => {
-                    // basically 2d to 1d index conversion, but we know already the width of one
-                    // line is 3
-                    let field_index = self.selected_field.0 * 3 + self.selected_field.1;
+                } => {
+                    if !self.game_over {
+                        // basically 2d to 1d index conversion, but we know already the width of one
+                        // line is 3
+                        let field_index = self.selected_field.0 * 3 + self.selected_field.1;
 
-                    // check first if the cell is free at all, we shouldn't overwrite an used one
-                    if self.board[usize::from(field_index)].is_empty() {
-                        self.mark_field(usize::from(field_index), self.user_faction.into());
-                        self.check_game_over();
-
-                        if !self.game_over {
-                            self.ai_turn();
+                        // check first if the cell is free at all, we shouldn't overwrite an used one
+                        if self.board[usize::from(field_index)].is_empty() {
+                            self.mark_field(usize::from(field_index), self.user_faction.into());
                             self.check_game_over();
-                        }
 
-                        // Not triggering would cause the backend not to know when it should redraw,
-                        // and so it would be drawn on the next required redraw, such as the window
-                        // being visible again or switching workspaces.
+                            if !self.game_over {
+                                self.ai_turn();
+                                self.check_game_over();
+                            }
+
+                            // Not triggering would cause the backend not to know when it should redraw,
+                            // and so it would be drawn on the next required redraw, such as the window
+                            // being visible again or switching workspaces.
+                            self.window.request_redraw();
+                        }
+                    } else {
+                        self.reset();
                         self.window.request_redraw();
                     }
                 }
