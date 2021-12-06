@@ -242,18 +242,18 @@ impl HandleEvent for App {
             },
             _ => (),
         }
-        // Just forward, maybe it wants to do something with it as well
+        // Just forward, maybe it wants to do something with it as well (such as... re-rendering if
+        // needed)
         self.backend.handle(event, flow);
     }
 }
 
-#[tokio::main]
-async fn main() {
+fn main() {
     env_logger::init();
 
     let event_loop = EventLoop::new();
 
-    let mut app = App::new(&event_loop).await.unwrap_or_else(|e| {
+    let mut app = pollster::block_on(App::new(&event_loop)).unwrap_or_else(|e| {
         log::error!("{}", e);
         std::process::exit(1)
     });
