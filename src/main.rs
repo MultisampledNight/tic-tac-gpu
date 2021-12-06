@@ -130,7 +130,12 @@ impl App {
     }
 
     fn ai_turn(&mut self) {
-        // TODO check for filled board, just return then
+        // check first if there is any empty field, else the "algorithm" to find a free field will
+        // loop forever
+        if !self.board.iter().any(Cell::is_empty) {
+            return;
+        }
+
         let selected_field = loop {
             let attempt = thread_rng().gen_range(0..9);
             // check if the field is empty at all
