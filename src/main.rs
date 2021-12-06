@@ -130,12 +130,6 @@ impl App {
     }
 
     fn ai_turn(&mut self) {
-        // check first if there is any empty field, else the "algorithm" to find a free field will
-        // loop forever
-        if !self.board.iter().any(Cell::is_empty) {
-            return;
-        }
-
         let selected_field = loop {
             let attempt = thread_rng().gen_range(0..9);
             // check if the field is empty at all
@@ -149,31 +143,36 @@ impl App {
     fn check_game_over(&mut self) {
         let mut game_over = false;
 
-        for i in 0..3 {
-            if (
-                // horizontal
-                !self.board[3 * i].is_empty()
-                    && self.board[3 * i] == self.board[3 * i + 1]
-                    && self.board[3 * i] == self.board[3 * i + 2]
-            ) || (
-                // vertical
-                !self.board[i].is_empty()
-                    && self.board[i] == self.board[i + 3]
-                    && self.board[i] == self.board[i + 6]
-            ) {
+        // check first if there is any empty field left, else the game is over anyways
+        if !self.board.iter().any(Cell::is_empty) {
+            game_over = true;
+        } else {
+            for i in 0..3 {
+                if (
+                    // horizontal
+                    !self.board[3 * i].is_empty()
+                        && self.board[3 * i] == self.board[3 * i + 1]
+                        && self.board[3 * i] == self.board[3 * i + 2]
+                ) || (
+                    // vertical
+                    !self.board[i].is_empty()
+                        && self.board[i] == self.board[i + 3]
+                        && self.board[i] == self.board[i + 6]
+                ) {
+                    game_over = true;
+                }
+            }
+
+            // crossed
+            if (!self.board[0].is_empty()
+                && self.board[0] == self.board[4]
+                && self.board[0] == self.board[8])
+                || (!self.board[2].is_empty()
+                    && self.board[2] == self.board[4]
+                    && self.board[2] == self.board[6])
+            {
                 game_over = true;
             }
-        }
-
-        // crossed
-        if (!self.board[0].is_empty()
-            && self.board[0] == self.board[4]
-            && self.board[0] == self.board[8])
-            || (!self.board[2].is_empty()
-                && self.board[2] == self.board[4]
-                && self.board[2] == self.board[6])
-        {
-            game_over = true;
         }
 
         if game_over {
@@ -227,10 +226,12 @@ impl HandleEvent for App {
                     // check first if the cell is free at all, we shouldn't overwrite an used one
                     if self.board[usize::from(field_index)].is_empty() {
                         self.mark_field(usize::from(field_index), self.user_faction.into());
-
-                        self.ai_turn();
-
                         self.check_game_over();
+
+                        if !self.game_over {
+                            self.ai_turn();
+                            self.check_game_over();
+                        }
 
                         // Not triggering would cause the backend not to know when it should redraw,
                         // and so it would be drawn on the next required redraw, such as the window
