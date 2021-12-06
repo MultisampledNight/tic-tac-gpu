@@ -93,6 +93,7 @@ pub struct Backend {
     ring: Shape,
 
     window_size: dpi::PhysicalSize<u32>,
+    background: wgpu::Color,
 }
 
 impl Backend {
@@ -264,6 +265,12 @@ impl Backend {
             surface,
             pipeline,
             window_size,
+            background: wgpu::Color {
+                r: 0.04,
+                g: 0.09,
+                b: 0.09,
+                a: 1.0,
+            },
         })
     }
 
@@ -281,7 +288,7 @@ impl Backend {
         );
     }
 
-    fn clear_background(color: wgpu::Color, frame: &mut Frame<'_, '_>) {
+    fn clear_background(&self, frame: &mut Frame<'_, '_>) {
         frame
             .encoder
             .begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -290,7 +297,7 @@ impl Backend {
                     view: frame.target_view,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(color),
+                        load: wgpu::LoadOp::Clear(self.background),
                         store: true,
                     },
                 }],
@@ -334,15 +341,7 @@ impl Backend {
         };
 
         // Now that we finished the setup stuff, let's actually draw stuff.
-        Self::clear_background(
-            wgpu::Color {
-                r: 0.04,
-                g: 0.09,
-                b: 0.09,
-                a: 1.0,
-            },
-            &mut next_frame,
-        );
+        self.clear_background(&mut next_frame);
         self.grid.draw(&mut next_frame);
         self.cross.draw(&mut next_frame);
         self.ring.draw(&mut next_frame);
@@ -364,6 +363,11 @@ impl Backend {
             .update_instances(board.iter().map(|cell| matches!(cell, Cell::Ring)));
         self.cross
             .update_instances(board.iter().map(|cell| matches!(cell, Cell::Cross)));
+    }
+
+    /// Sets a new background color, overwriting the previous one.
+    pub fn set_background(&mut self, color: wgpu::Color) {
+        self.background = color;
     }
 }
 

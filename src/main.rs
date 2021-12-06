@@ -1,6 +1,7 @@
 mod render;
 
 use {
+    rand::{distributions::Standard, prelude::*},
     render::Backend,
     thiserror::Error,
     winit::{
@@ -30,11 +31,65 @@ pub enum Cell {
     Empty,
 }
 
+impl Cell {
+    // Returns whether this cell is empty, false if it is used by any faction.
+    fn is_empty(&self) -> bool {
+        matches!(self, Self::Empty)
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+enum Faction {
+    Cross,
+    Ring,
+}
+
+impl Faction {
+    // Determines whether this faction makes the first turn. Ring is the one for that.
+    fn goes_first(&self) -> bool {
+        match self {
+            Self::Cross => false,
+            Self::Ring => true,
+        }
+    }
+
+    // Returns the opposite faction, e.g. cross for ring and ring for cross.
+    fn opposite(&self) -> Self {
+        match self {
+            Self::Cross => Self::Ring,
+            Self::Ring => Self::Cross,
+        }
+    }
+}
+
+impl Distribution<Faction> for Standard {
+    fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> Faction {
+        // exact mapping doesn't matter
+        match rng.gen() {
+            false => Faction::Cross,
+            true => Faction::Ring,
+        }
+    }
+}
+
+impl From<Faction> for Cell {
+    fn from(faction: Faction) -> Self {
+        match faction {
+            Faction::Cross => Cell::Cross,
+            Faction::Ring => Cell::Ring,
+        }
+    }
+}
+
 struct App {
     selected_field: (u8, u8),
     board: [Cell; 9],
-    backend: Backend,
+    game_over: bool,
+    // we need only one sido to hold which faction it belongs to, the AI will then just be the
+    // other one
+    user_faction: Faction,
 
+    backend: Backend,
     // DO NOT REORDER THIS -- Safety of Backend::new depends on it
     window: Window,
 }
@@ -50,18 +105,81 @@ impl App {
         // the backend
         let backend = unsafe { Backend::new(&window) }.await?;
 
-        Ok(Self {
+        let user_faction = thread_rng().gen();
+
+        let mut app = Self {
             selected_field: (1, 1),
             board: [Cell::Empty; 9],
+            game_over: false,
+            user_faction,
             backend,
             window,
-        })
+        };
+
+        if !user_faction.goes_first() {
+            app.ai_turn();
+        }
+
+        Ok(app)
     }
 
     fn mark_field(&mut self, index: usize, with: Cell) {
         self.board[index] = with;
         // Don't forget to tell the backend! It has to update it's internal structure then
         self.backend.update_instances(&self.board);
+    }
+
+    fn ai_turn(&mut self) {
+        // TODO check for filled board, just return then
+        let selected_field = loop {
+            let attempt = thread_rng().gen_range(0..9);
+            // check if the field is empty at all
+            if self.board[attempt].is_empty() {
+                break attempt;
+            }
+        };
+        self.mark_field(selected_field, self.user_faction.opposite().into());
+    }
+
+    fn check_game_over(&mut self) {
+        let mut game_over = false;
+
+        for i in 0..3 {
+            if (
+                // horizontal
+                !self.board[3 * i].is_empty()
+                    && self.board[3 * i] == self.board[3 * i + 1]
+                    && self.board[3 * i] == self.board[3 * i + 2]
+            ) || (
+                // vertical
+                !self.board[i].is_empty()
+                    && self.board[i] == self.board[i + 3]
+                    && self.board[i] == self.board[i + 6]
+            ) {
+                game_over = true;
+            }
+        }
+
+        // crossed
+        if (!self.board[0].is_empty()
+            && self.board[0] == self.board[4]
+            && self.board[0] == self.board[8])
+            || (!self.board[2].is_empty()
+                && self.board[2] == self.board[4]
+                && self.board[2] == self.board[6])
+        {
+            game_over = true;
+        }
+
+        if game_over {
+            self.game_over = true;
+            self.backend.set_background(wgpu::Color {
+                r: 0.3,
+                g: 0.35,
+                b: 0.35,
+                a: 1.0,
+            });
+        }
     }
 }
 
@@ -96,11 +214,15 @@ impl HandleEvent for App {
                     button: MouseButton::Left,
                     state: ElementState::Released,
                     ..
-                } => {
+                } if !self.game_over => {
                     // basically 2d to 1d index conversion, but we know already the width of one
                     // line is 3
                     let field_index = self.selected_field.0 * 3 + self.selected_field.1;
-                    self.mark_field(usize::from(field_index), Cell::Cross);
+                    self.mark_field(usize::from(field_index), self.user_faction.into());
+
+                    self.ai_turn();
+
+                    self.check_game_over();
 
                     // Not triggering would cause the backend not to know when it should redraw,
                     // and so it would be drawn on the next required redraw, such as the window
