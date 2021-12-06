@@ -223,16 +223,20 @@ impl HandleEvent for App {
                     // basically 2d to 1d index conversion, but we know already the width of one
                     // line is 3
                     let field_index = self.selected_field.0 * 3 + self.selected_field.1;
-                    self.mark_field(usize::from(field_index), self.user_faction.into());
 
-                    self.ai_turn();
+                    // check first if the cell is free at all, we shouldn't overwrite an used one
+                    if self.board[usize::from(field_index)].is_empty() {
+                        self.mark_field(usize::from(field_index), self.user_faction.into());
 
-                    self.check_game_over();
+                        self.ai_turn();
 
-                    // Not triggering would cause the backend not to know when it should redraw,
-                    // and so it would be drawn on the next required redraw, such as the window
-                    // being visible again or switching workspaces.
-                    self.window.request_redraw();
+                        self.check_game_over();
+
+                        // Not triggering would cause the backend not to know when it should redraw,
+                        // and so it would be drawn on the next required redraw, such as the window
+                        // being visible again or switching workspaces.
+                        self.window.request_redraw();
+                    }
                 }
                 _ => (),
             },
