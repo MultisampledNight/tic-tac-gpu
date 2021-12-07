@@ -191,6 +191,7 @@ impl App {
         // own struct which is resettable by ::new()ing and the app more like a manager, but it is
         // what it is
         self.board = [Cell::Empty; 9];
+        self.backend.update_instances(&self.board);
         self.game_over = false;
         self.backend.set_background(wgpu::Color {
             r: 0.04,
