@@ -34,13 +34,14 @@ happen to learn things better if I try to formulate them out.
 
 The final look didn't matter to me, more about the rendering itself. This is not
 a full-featured super accessible tic-tac-toe game with multiple AI modes and
-beatiful text rendering.
+beautiful text rendering.
 
 ### Gamepad support?
 
-See winit#944. TLDR: No one seems to have time to implement it in winit, the
-windowing library I use, and I don't know anything about X11, Wayland and
-Quartz, so I can't implement it either.
+See https://github.com/rust-windowing/winit/issues/944. TLDR: No one seems to
+have time to implement it in winit, the windowing library I use, and I don't
+know anything about X11, evdev, Wayland and Quartz, so I can't implement it
+either.
 
 ### Screenshots?
 
