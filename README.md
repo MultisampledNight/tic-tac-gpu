@@ -20,7 +20,8 @@ cargo install --git https://github.com/MultisampledNight/tic-tac-gpu.git
 ```
 
 This will by default install to `$HOME/.cargo/bin`, or whatever the equivalent
-on your OS is. Either put that path on `$PATH`, or just run the `tic-tac-toe` binary directly.
+on your OS is. Either put that path on `$PATH`, or just run the `tic-tac-gpu`
+binary directly.
 
 ## Totally asked questions
 
