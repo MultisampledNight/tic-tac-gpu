@@ -33,7 +33,7 @@ pub enum Cell {
 
 impl Cell {
     // Returns whether this cell is empty, false if it is used by any faction.
-    fn is_empty(&self) -> bool {
+    fn is_empty(self) -> bool {
         matches!(self, Self::Empty)
     }
 }
@@ -46,7 +46,7 @@ enum Faction {
 
 impl Faction {
     // Determines whether this faction makes the first turn. Ring is the one for that.
-    fn goes_first(&self) -> bool {
+    fn goes_first(self) -> bool {
         match self {
             Self::Cross => false,
             Self::Ring => true,
@@ -54,7 +54,7 @@ impl Faction {
     }
 
     // Returns the opposite faction, e.g. cross for ring and ring for cross.
-    fn opposite(&self) -> Self {
+    fn opposite(self) -> Self {
         match self {
             Self::Cross => Self::Ring,
             Self::Ring => Self::Cross,
@@ -85,7 +85,7 @@ struct App {
     selected_field: (u8, u8),
     board: [Cell; 9],
     game_over: bool,
-    // we need only one sido to hold which faction it belongs to, the AI will then just be the
+    // we need only one side to hold which faction it belongs to, the AI will then just be the
     // other one
     user_faction: Faction,
 
@@ -144,9 +144,7 @@ impl App {
         let mut game_over = false;
 
         // check first if there is any empty field left, else the game is over anyways
-        if !self.board.iter().any(Cell::is_empty) {
-            game_over = true;
-        } else {
+        if self.board.iter().copied().any(Cell::is_empty) {
             for i in 0..3 {
                 if (
                     // horizontal
@@ -173,6 +171,8 @@ impl App {
             {
                 game_over = true;
             }
+        } else {
+            game_over = true;
         }
 
         if game_over {
@@ -217,9 +217,9 @@ impl HandleEvent for App {
                     // simple bounds checking, sometimes on X I've seen some mouse event coming
                     // from out of the actual window size
                     if !(position.x < 0.0
-                        || position.x >= window_size.width as f64
+                        || position.x >= f64::from(window_size.width)
                         || position.y < 0.0
-                        || position.y >= window_size.width as f64)
+                        || position.y >= f64::from(window_size.width))
                     {
                         // even though it's name might not make that clear, these components now range
                         // from 0 to 3
@@ -239,7 +239,10 @@ impl HandleEvent for App {
                     state: ElementState::Released,
                     ..
                 } => {
-                    if !self.game_over {
+                    if self.game_over {
+                        self.reset();
+                        self.window.request_redraw();
+                    } else {
                         // basically 2d to 1d index conversion, but we know already the width of one
                         // line is 3
                         let field_index = self.selected_field.0 * 3 + self.selected_field.1;
@@ -259,9 +262,6 @@ impl HandleEvent for App {
                             // being visible again or switching workspaces.
                             self.window.request_redraw();
                         }
-                    } else {
-                        self.reset();
-                        self.window.request_redraw();
                     }
                 }
                 _ => (),

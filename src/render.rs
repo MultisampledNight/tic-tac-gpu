@@ -624,15 +624,15 @@ impl Shape {
         Self::new(device, &vertices, &indices, &Instance::grid())
     }
 
-    // A 3 times 3 grid.
-    //
-    // ```
-    //    |   |
-    // ---+---+---
-    //    |   |
-    // ---+---+---
-    //    |   |
-    // ```
+    /// A 3 times 3 grid.
+    ///
+    /// ```
+    ///    |   |
+    /// ---+---+---
+    ///    |   |
+    /// ---+---+---
+    ///    |   |
+    /// ```
     #[rustfmt::skip]
     fn grid(device: &wgpu::Device) -> Self {
         Self::new(
