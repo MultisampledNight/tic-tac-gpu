@@ -67,6 +67,14 @@ const LIMITS: wgpu::Limits = wgpu::Limits {
     max_push_constant_size: 0,
     min_uniform_buffer_offset_alignment: !0,
     min_storage_buffer_offset_alignment: !0,
+
+    max_inter_stage_shader_components: 4,
+    max_compute_workgroup_storage_size: 0,
+    max_compute_invocations_per_workgroup: 0,
+    max_compute_workgroup_size_x: 0,
+    max_compute_workgroup_size_y: 0,
+    max_compute_workgroup_size_z: 0,
+    max_compute_workgroups_per_dimension: 0,
 };
 
 pub struct Backend {
@@ -214,7 +222,7 @@ impl Backend {
                 strip_index_format: None,
                 front_face: wgpu::FrontFace::Ccw,
                 cull_mode: Some(wgpu::Face::Back),
-                clamp_depth: false,
+                unclipped_depth: false,
                 polygon_mode: wgpu::PolygonMode::Fill,
                 conservative: false,
             },
@@ -233,6 +241,7 @@ impl Backend {
                     write_mask: wgpu::ColorWrites::all(),
                 }],
             }),
+            multiview: None,
         });
 
         let mut grid = Shape::grid(&device);
