@@ -98,6 +98,7 @@ impl Backend {
     /// # Safety
     ///
     /// The given [`winit::window::Window`] must live as long as the returned backend.
+    #[allow(unused_unsafe)]
     pub async unsafe fn new(window: &Window) -> Result<Self, BackendError> {
         // The instance is the main starting point for everything in wgpu, there is no need to
         // "keep it alive" though (see the docs). We also need it only for surface and adapter
