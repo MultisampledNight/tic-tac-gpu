@@ -63,6 +63,8 @@ const LIMITS: wgpu::Limits = wgpu::Limits {
     // position + color of vertices + position of instances
     max_vertex_attributes: 3,
     max_vertex_buffer_array_stride: mem::size_of::<Vertex>() as u32,
+    // I'd be a lot happier if this could be kept in sync with CIRCLE_VERTEX_COUNT, but welp
+    max_buffer_size: mem::size_of::<Vertex>() as u64 * 48,
 
     max_push_constant_size: 0,
     min_uniform_buffer_offset_alignment: !0,
@@ -118,7 +120,7 @@ impl Backend {
             .await
             .ok_or(BackendError::NoSuitableAdapter)?;
 
-        let surface_format = surface.get_preferred_format(&adapter).unwrap(); // won't fail as no adapter can be found then
+        let surface_format = surface.get_supported_formats(&adapter)[0]; // won't fail as no adapter can be found then
 
         // The device however refers to one specific API of a such graphics card. So if your card
         // supports, let's say, Vulkan and OpenGL ES, an adapter would refer to the card itself
@@ -164,7 +166,7 @@ impl Backend {
         //
         // The only other shader types I know are compute and geometry shaders, but they are for
         // more special cases. uwu.
-        let shader = device.create_shader_module(&wgpu::include_wgsl!("shader.wgsl"));
+        let shader = device.create_shader_module(wgpu::include_wgsl!("shader.wgsl"));
 
         // Render pipelines and their layout define one "way" of how to handle rendering. "Way" as
         // in, one run to the GPU, through the vertex shader, fragment shader, and all the other
@@ -236,11 +238,11 @@ impl Backend {
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
                 entry_point: "fragment_main",
-                targets: &[wgpu::ColorTargetState {
+                targets: &[Some(wgpu::ColorTargetState {
                     format: surface_format,
                     blend: None,
                     write_mask: wgpu::ColorWrites::all(),
-                }],
+                })],
             }),
             multiview: None,
         });
@@ -278,7 +280,7 @@ impl Backend {
             &self.device,
             &wgpu::SurfaceConfiguration {
                 usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-                format: self.surface.get_preferred_format(&self.adapter).unwrap(),
+                format: self.surface.get_supported_formats(&self.adapter)[0],
                 width: self.window_size.width,
                 height: self.window_size.height,
                 present_mode: wgpu::PresentMode::Fifo,
@@ -298,7 +300,7 @@ impl Backend {
                 .create_view(&wgpu::TextureViewDescriptor {
                     label: None,
                     // might seem pointless, but I want to ensure the format is Some
-                    format: Some(self.surface.get_preferred_format(&self.adapter).unwrap()),
+                    format: Some(self.surface.get_supported_formats(&self.adapter)[0]),
                     dimension: Some(wgpu::TextureViewDimension::D2),
                     ..wgpu::TextureViewDescriptor::default()
                 });
@@ -320,14 +322,14 @@ impl Backend {
             // to consume it or anything.
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: None,
-                color_attachments: &[wgpu::RenderPassColorAttachment {
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &next_frame_view,
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(self.background),
                         store: true,
                     },
-                }],
+                })],
                 depth_stencil_attachment: None,
             });
 
