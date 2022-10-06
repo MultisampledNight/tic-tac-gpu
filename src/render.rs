@@ -151,6 +151,7 @@ impl Backend {
                 width: window_size.width,
                 height: window_size.height,
                 present_mode: wgpu::PresentMode::Fifo,
+                alpha_mode: wgpu::CompositeAlphaMode::Auto,
             },
         );
 
@@ -284,6 +285,7 @@ impl Backend {
                 width: self.window_size.width,
                 height: self.window_size.height,
                 present_mode: wgpu::PresentMode::Fifo,
+                alpha_mode: wgpu::CompositeAlphaMode::Auto,
             },
         );
     }
