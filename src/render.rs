@@ -308,7 +308,7 @@ impl Backend {
                 });
 
         // A command encoder is comparable to a recorder: You say some things and these things can
-        // be heared in the same order later on. Same with the command encoder, just that it
+        // be heard in the same order later on. Same with the command encoder, just that it
         // doesn't record voice but rather render *commands* (also compute commands, but I
         // currently don't care about these and they are for more specific purposes) for the GPU to
         // execute.
@@ -427,7 +427,7 @@ unsafe impl bytemuck::Zeroable for Instance {}
 unsafe impl bytemuck::Pod for Instance {}
 
 impl Instance {
-    /// Returns instances layed out in a 3 times 3 grid, ranging on both X and Y from -0.5 to 0.5.
+    /// Returns instances laid out in a 3 times 3 grid, ranging on both X and Y from -0.5 to 0.5.
     fn grid() -> [Instance; 9] {
         let mut grid = Vec::new();
 
@@ -543,7 +543,7 @@ impl Shape {
     }
 }
 
-/// Pre-defined shapes. All methods in here have their instances layed out as in
+/// Pre-defined shapes. All methods in here have their instances laid out as in
 /// [`Instance::grid`] (except, well, `grid` itself which has only one).
 impl Shape {
     /// Creates a new cross-like shape.
@@ -602,7 +602,7 @@ impl Shape {
         let mut indices = Vec::with_capacity((CIRCLE_VERTEX_COUNT * 6) as usize);
 
         // We configure the rotor once, then rotate the vector with it again and again and again...
-        // ...until we've completed a circle movement and catched all the vertices we wanted to
+        // ...until we've completed a circle movement and caught all the vertices we wanted to
         // have. Now let's go and push their DVs to make a perfect build. /hj
         let rotor = Rotor2::from_angle(PI * 2.0 / CIRCLE_VERTEX_COUNT as f32);
         let mut vector = Vec2::new(1.0, 0.0);
