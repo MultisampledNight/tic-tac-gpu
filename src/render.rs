@@ -18,6 +18,8 @@ pub enum BackendError {
     NoSuitableAdapter,
     #[error("Could not request device: {0}")]
     RequestDeviceError(#[from] wgpu::RequestDeviceError),
+    #[error("Unable to create WebGL/WebGPU surface: {0}")]
+    CreateSurfaceError(#[from] wgpu::CreateSurfaceError),
 }
 
 #[derive(Debug, Error)]
@@ -45,6 +47,7 @@ const LIMITS: wgpu::Limits = wgpu::Limits {
     max_texture_array_layers: 0,
 
     max_bind_groups: 0,
+    max_bindings_per_bind_group: 0,
 
     max_dynamic_uniform_buffers_per_pipeline_layout: 0,
     max_dynamic_storage_buffers_per_pipeline_layout: 0,
@@ -80,11 +83,12 @@ const LIMITS: wgpu::Limits = wgpu::Limits {
 };
 
 pub struct Backend {
-    adapter: wgpu::Adapter,
+    _adapter: wgpu::Adapter,
     device: wgpu::Device,
     queue: wgpu::Queue,
     surface: wgpu::Surface,
     pipeline: wgpu::RenderPipeline,
+    preferred_format: wgpu::TextureFormat,
 
     grid: Shape,
     cross: Shape,
@@ -105,9 +109,9 @@ impl Backend {
         // The instance is the main starting point for everything in wgpu, there is no need to
         // "keep it alive" though (see the docs). We also need it only for surface and adapter
         // creation
-        let instance = wgpu::Instance::new(wgpu::Backends::all());
+        let instance = wgpu::Instance::default();
 
-        let surface = unsafe { instance.create_surface(window) }; // SAFETY: delegated to the caller
+        let surface = unsafe { instance.create_surface(window) }?; // SAFETY: delegated to the caller
 
         // An adapter can be seen as a virtual handle to a physical graphics card or whatever that
         // might be
@@ -120,7 +124,8 @@ impl Backend {
             .await
             .ok_or(BackendError::NoSuitableAdapter)?;
 
-        let surface_format = surface.get_supported_formats(&adapter)[0]; // won't fail as no adapter can be found then
+        let caps = surface.get_capabilities(&adapter);
+        let surface_format = caps.formats[0]; // won't fail as no adapter can be found then
 
         // The device however refers to one specific API of a such graphics card. So if your card
         // supports, let's say, Vulkan and OpenGL ES, an adapter would refer to the card itself
@@ -148,6 +153,7 @@ impl Backend {
             &wgpu::SurfaceConfiguration {
                 usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
                 format: surface_format,
+                view_formats: Vec::new(),
                 width: window_size.width,
                 height: window_size.height,
                 present_mode: wgpu::PresentMode::Fifo,
@@ -260,8 +266,9 @@ impl Backend {
             grid,
             cross,
             ring,
-            adapter,
+            _adapter: adapter,
             device,
+            preferred_format: surface_format,
             queue,
             surface,
             pipeline,
@@ -281,7 +288,8 @@ impl Backend {
             &self.device,
             &wgpu::SurfaceConfiguration {
                 usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-                format: self.surface.get_supported_formats(&self.adapter)[0],
+                format: self.preferred_format,
+                view_formats: Vec::new(),
                 width: self.window_size.width,
                 height: self.window_size.height,
                 present_mode: wgpu::PresentMode::Fifo,
@@ -302,7 +310,7 @@ impl Backend {
                 .create_view(&wgpu::TextureViewDescriptor {
                     label: None,
                     // might seem pointless, but I want to ensure the format is Some
-                    format: Some(self.surface.get_supported_formats(&self.adapter)[0]),
+                    format: Some(self.preferred_format),
                     dimension: Some(wgpu::TextureViewDimension::D2),
                     ..wgpu::TextureViewDescriptor::default()
                 });
@@ -508,13 +516,13 @@ impl Shape {
 
         let mut possible_start = None;
 
-        for (active, i) in enabled.zip(0_u32..) {
+        for (i, active) in enabled.enumerate() {
             // basically just analyzing a flip-flop: note down when it's positive and note down when it
             // ends being positive
             match (possible_start, active) {
                 (None, true) => possible_start = Some(i),
                 (Some(start), false) => {
-                    self.active_ranges.push(start as u32..i);
+                    self.active_ranges.push(start as u32..i as u32);
                     possible_start = None;
                 }
                 _ => (),
@@ -526,7 +534,7 @@ impl Shape {
         }
     }
 
-    /// Draws this shape by creating a new render pass.
+    /// Draws this shape using the given render pass.
     ///
     /// The pipeline defines how the vertices contained by this shape are to be interpreted, e.g.
     /// if as lines, triangles, triangle strips...
@@ -607,7 +615,7 @@ impl Shape {
         let rotor = Rotor2::from_angle(PI * 2.0 / CIRCLE_VERTEX_COUNT as f32);
         let mut vector = Vec2::new(1.0, 0.0);
 
-        for i in (0..CIRCLE_VERTEX_COUNT).into_iter().map(|x| x * 2) {
+        for i in (0..CIRCLE_VERTEX_COUNT).map(|x| x * 2) {
             vertices.push(Vertex { position: [vector.x * 0.15, vector.y * 0.15], color: [0.76, 0.3, 1.0, 1.0] });
             vertices.push(Vertex { position: [vector.x * 0.25, vector.y * 0.25], color: [0.76, 0.3, 1.0, 1.0] });
 

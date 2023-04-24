@@ -31,4 +31,3 @@ fn fragment_main(
 	return source.color;
 }
 
-// vim: ft=rust

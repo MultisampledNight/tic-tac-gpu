@@ -209,8 +209,8 @@ impl App {
 
 impl HandleEvent for App {
     fn handle(&mut self, event: Event<()>, flow: &mut ControlFlow) {
-        match event {
-            Event::WindowEvent { ref event, .. } => match event {
+        if let Event::WindowEvent { ref event, .. } = event {
+             match event {
                 WindowEvent::CursorMoved { position, .. } => {
                     let window_size = self.window.inner_size();
 
@@ -265,8 +265,7 @@ impl HandleEvent for App {
                     }
                 }
                 _ => (),
-            },
-            _ => (),
+             }
         }
         // Just forward, maybe it wants to do something with it as well (such as... re-rendering if
         // needed)
