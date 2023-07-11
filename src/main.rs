@@ -273,8 +273,8 @@ impl HandleEvent for App {
     }
 }
 
-fn main() {
-    env_logger::init();
+fn main() -> Result<(), flexi_logger::FlexiLoggerError> {
+    flexi_logger::Logger::try_with_env()?.start()?;
 
     let event_loop = EventLoop::new();
 
